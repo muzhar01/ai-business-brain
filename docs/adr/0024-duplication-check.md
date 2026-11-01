@@ -1,0 +1,2 @@
+# 0024 Duplication check (back-pressure)
+Status: accepted. Context: engineering principles ask for a duplication check; no external tool installed (composer is slow, adds a dev dependency). Decision: a deterministic PHPUnit test (tests/Unit/DuplicationTest.php) hashes every window of 12 consecutive normalised non-trivial lines in app/*.php and fails when a window appears in two different places beyond a baseline allowance. Alternatives: phpcpd (abandoned), Sonar (external). Security: read-only, no I/O outside app/.

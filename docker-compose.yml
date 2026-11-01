@@ -1,0 +1,49 @@
+# Local / single-host production: `docker compose up -d`, then
+# `docker compose exec app php artisan brain:install`
+x-env: &env
+  DB_CONNECTION: pgsql
+  DB_HOST: db
+  DB_PORT: 5432
+  DB_DATABASE: brain
+  DB_USERNAME: brain
+  DB_PASSWORD: secret
+  BRAIN_VECTOR_STORE: pgvector
+  REDIS_HOST: redis
+  CACHE_STORE: redis
+  SESSION_DRIVER: redis
+  QUEUE_CONNECTION: redis
+
+x-app: &app
+  build: .
+  env_file: .env
+  volumes: [storage:/var/www/html/storage/app]
+  depends_on: [db, redis]
+
+services:
+  app:
+    <<: *app
+    environment: *env
+    ports: ["8080:8080"]
+  horizon:
+    <<: *app
+    environment: { <<: *env, AUTORUN_ENABLED: "false" }
+    command: ["php", "artisan", "horizon"]
+    healthcheck: { test: ["CMD", "php", "artisan", "horizon:status"], interval: 30s }
+  scheduler:
+    <<: *app
+    environment: { <<: *env, AUTORUN_ENABLED: "false" }
+    command: ["php", "artisan", "schedule:work"]
+  db:
+    image: pgvector/pgvector:pg17
+    environment: { POSTGRES_DB: brain, POSTGRES_USER: brain, POSTGRES_PASSWORD: secret }
+    volumes: [pg:/var/lib/postgresql/data]
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes: [redis:/data]
+  ollama: # optional private LLM (BAA-free for HIPAA): docker compose --profile local-ai up -d
+    image: ollama/ollama
+    profiles: [local-ai]
+    volumes: [ollama:/root/.ollama]
+
+volumes: { storage: {}, pg: {}, redis: {}, ollama: {} }

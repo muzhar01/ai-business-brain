@@ -1,0 +1,2 @@
+# 0028 Widget: idle start, failure-safe boot
+Status: accepted. Problem: widget fetched config and built DOM during page load, competing with the host's first paint; an unreachable/erroring config endpoint caused an unhandled rejection in the host page. Decision: boot after window load via requestIdleCallback (3 s timeout; setTimeout 200 ms fallback); non-2xx config or network error is swallowed so the host page is untouched. Security: no new inputs. Rejected: lazy-building on first click (colour/label needed for the launcher button). Not validated in real browsers.

@@ -1,0 +1,100 @@
+# Horizontal scale on Kubernetes. Stateless pods; state lives in Postgres (+ read replicas),
+# Redis (cache/session/queue/locks) and S3 (files). Apply: kubectl apply -f deploy/k8s/
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: brain-web, labels: { app: brain, tier: web } }
+spec:
+  replicas: 6
+  strategy: { rollingUpdate: { maxUnavailable: 0, maxSurge: 25% } }
+  selector: { matchLabels: { app: brain, tier: web } }
+  template:
+    metadata: { labels: { app: brain, tier: web } }
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: web
+          image: ghcr.io/your-org/ai-business-brain:latest
+          envFrom: [{ secretRef: { name: brain-env } }]
+          env: [{ name: AUTORUN_LARAVEL_MIGRATION, value: "false" }]
+          ports: [{ containerPort: 8080 }]
+          resources: { requests: { cpu: "500m", memory: "512Mi" }, limits: { cpu: "2", memory: "1Gi" } }
+          readinessProbe: { httpGet: { path: /health, port: 8080 }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /up, port: 8080 }, periodSeconds: 15 }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: false, capabilities: { drop: [ALL] } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: brain-web }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: brain-web }
+  minReplicas: 6
+  maxReplicas: 400
+  metrics: [{ type: Resource, resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: brain-horizon }
+spec:
+  replicas: 4
+  selector: { matchLabels: { app: brain, tier: worker } }
+  template:
+    metadata: { labels: { app: brain, tier: worker } }
+    spec:
+      terminationGracePeriodSeconds: 1800
+      containers:
+        - name: horizon
+          image: ghcr.io/your-org/ai-business-brain:latest
+          envFrom: [{ secretRef: { name: brain-env } }]
+          env: [{ name: AUTORUN_ENABLED, value: "false" }]
+          command: ["php", "artisan", "horizon"]
+          resources: { requests: { cpu: "500m", memory: "512Mi" }, limits: { cpu: "2", memory: "2Gi" } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: brain-horizon }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: brain-horizon }
+  minReplicas: 4
+  maxReplicas: 200
+  metrics: [{ type: Resource, resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: brain-scheduler }
+spec:
+  replicas: 1 # onOneServer() locks in Redis make extra replicas safe but unnecessary
+  selector: { matchLabels: { app: brain, tier: scheduler } }
+  template:
+    metadata: { labels: { app: brain, tier: scheduler } }
+    spec:
+      containers:
+        - name: scheduler
+          image: ghcr.io/your-org/ai-business-brain:latest
+          envFrom: [{ secretRef: { name: brain-env } }]
+          env: [{ name: AUTORUN_ENABLED, value: "false" }]
+          command: ["php", "artisan", "schedule:work"]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: brain-migrate }
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: ghcr.io/your-org/ai-business-brain:latest
+          envFrom: [{ secretRef: { name: brain-env } }]
+          command: ["php", "artisan", "migrate", "--force"]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: brain-web }
+spec:
+  selector: { app: brain, tier: web }
+  ports: [{ port: 80, targetPort: 8080 }]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: brain-web }
+spec: { minAvailable: 4, selector: { matchLabels: { app: brain, tier: web } } }

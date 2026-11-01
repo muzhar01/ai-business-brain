@@ -1,0 +1,2 @@
+# 0023 Contrast of hardcoded colour pairs
+Status: accepted. Follows ADR 0022. Hardcoded fg/bg pairs (skip link, palette selection, current find hit, primary button) are asserted at >= 4.5:1 in ContrastTest; --acc is theme-independent so one check covers both themes. Decorative pill borders are exempt (1.4.11 applies to UI components needing identification; pill text carries the meaning). Not validated in real browsers.
